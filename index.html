@@ -144,6 +144,32 @@
   .empty { text-align: center; padding: 40px; color: var(--muted); }
   .emico { font-size: 36px; margin-bottom: 10px; }
 
+  /* COLLAPSIBLE SECTIONS */
+  .shdr { cursor: pointer; user-select: none; }
+  .shdr:hover .stit { color: var(--accent); }
+  .chevron { margin-left: 8px; color: var(--muted); font-size: 12px; transition: transform 0.2s; display: inline-block; }
+  .section.collapsed .chevron { transform: rotate(-90deg); }
+  .section.collapsed .task-grid { display: none; }
+
+  /* COMPACT TASK GRID */
+  .task-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  @media (max-width: 500px) { .task-grid { grid-template-columns: 1fr; } }
+
+  /* COMPACT TASK CARD */
+  .tc-compact { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 9px; cursor: pointer; position: relative; overflow: hidden; transition: all 0.2s; }
+  .tc-compact:hover { border-color: rgba(93,193,185,0.35); }
+  .tc-compact.done { opacity: 0.45; }
+  .tc-compact.done .tn { text-decoration: line-through; }
+  .tc-compact::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+  .tc-compact.fd::before { background: var(--accent); }
+  .tc-compact.fs::before { background: var(--purple); }
+  .tc-compact.fm::before { background: var(--green); }
+  .tc-compact .cbtn { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--muted); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 10px; color: transparent; transition: all 0.2s; }
+  .tc-compact.done .cbtn { background: var(--green); border-color: var(--green); color: #0f0e17; }
+  .tc-compact .ti { flex: 1; min-width: 0; }
+  .tc-compact .tn { font-size: 12px; font-weight: 400; line-height: 1.3; }
+  .tc-compact .dm { font-size: 10px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
   /* ERROR */
   .err-bar { background: rgba(242,95,76,0.1); border: 1px solid rgba(242,95,76,0.3); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: var(--accent2); display: none; }
 
@@ -374,6 +400,14 @@ const TD = [
   {id:'g3',room:'Gestión',icon:'🛒',name:'Hacer lista de compras',freq:'semanal'},
   {id:'g4',room:'Gestión',icon:'🛒',name:'Hacer compras',freq:'semanal'},
   {id:'g5',room:'Gestión',icon:'🛒',name:'Guardar compras',freq:'semanal'},
+  // ESTUDIO
+  {id:'est1',room:'Estudio',icon:'💻',name:'Limpiar polvo de pantalla',freq:'semanal'},
+  {id:'est2',room:'Estudio',icon:'💻',name:'Limpiar polvo de monitores y bases',freq:'semanal'},
+  {id:'est3',room:'Estudio',icon:'💻',name:'Limpiar polvo de equipos',freq:'semanal'},
+  {id:'est4',room:'Estudio',icon:'💻',name:'Limpiar polvo de escritorio',freq:'semanal'},
+  {id:'est5',room:'Estudio',icon:'💻',name:'Limpiar teclado Arturia (soporte y pedales)',freq:'semanal'},
+  {id:'est6',room:'Estudio',icon:'💻',name:'Limpiar cajoneras',freq:'semanal'},
+  {id:'est7',room:'Estudio',icon:'💻',name:'Barrer debajo de escritorio',freq:'semanal'},
 ];
 
 // ── ESTADO ───────────────────────────────────────────────────────────────────
@@ -475,6 +509,15 @@ function rStats() {
     <div class="sc"><div class="sn" style="color:var(--green)">${mins}m</div><div class="sl">Tiempo</div></div>`;
 }
 
+// Track collapsed sections
+var collapsedSections = JSON.parse(localStorage.getItem('dt_collapsed') || '{}');
+
+function toggleSection(room) {
+  collapsedSections[room] = !collapsedSections[room];
+  localStorage.setItem('dt_collapsed', JSON.stringify(collapsedSections));
+  rTasks();
+}
+
 function rTasks() {
   let tasks = TD;
   if (filt === 'pending') tasks = tasks.filter(t => !checks[t.id]);
@@ -485,18 +528,27 @@ function rTasks() {
   let html = '';
   Object.entries(rooms).forEach(([room, data]) => {
     const dc = data.tasks.filter(t => checks[t.id]).length;
-    html += `<div class="section"><div class="shdr"><div class="sico">${data.icon}</div><div class="stit">${room}</div><div class="scnt">${dc}/${data.tasks.length}</div></div>`;
+    const isCollapsed = collapsedSections[room] ? 'collapsed' : '';
+    const roomKey = room.replace(/[^a-zA-Z]/g, '_');
+    html += '<div class="section ' + isCollapsed + '" id="sec_' + roomKey + '">'
+      + '<div class="shdr" onclick="toggleSection(\'' + room + '\')">'
+      + '<div class="sico">' + data.icon + '</div>'
+      + '<div class="stit">' + room + '<span class="chevron">▾</span></div>'
+      + '<div class="scnt">' + dc + '/' + data.tasks.length + '</div>'
+      + '</div>'
+      + '<div class="task-grid">';
     data.tasks.forEach(t => {
       const c = checks[t.id], done = !!c;
-      html += `<div class="tc f${t.freq[0]}${done ? ' done' : ''}" onclick="doClick('${t.id}')">
-        <button class="cbtn">${done ? '✓' : ''}</button>
-        <div class="ti"><div class="tn">${t.name}</div>
-        <div class="tm"><span class="ft ${fc[t.freq]}">${t.freq}</span>
-        ${done ? `<span class="dm">👤 ${c.username} · ⏱ ${c.mins}min</span>` : ''}</div></div></div>`;
+      const freqClass = fc[t.freq] || 'd';
+      html += '<div class="tc-compact f' + t.freq[0] + (done ? ' done' : '') + '" onclick="doClick(\'' + t.id + '\')">'
+        + '<button class="cbtn">' + (done ? '✓' : '') + '</button>'
+        + '<div class="ti"><div class="tn">' + t.name + '</div>'
+        + (done ? '<div class="dm">👤 ' + c.username + ' · ' + c.mins + 'min</div>' : '')
+        + '</div></div>';
     });
-    html += '</div>';
+    html += '</div></div>';
   });
-  if (!html) html = `<div class="empty"><div class="emico">🎉</div><p>¡Todo listo por aquí!</p></div>`;
+  if (!html) html = '<div class="empty"><div class="emico">🎉</div><p>¡Todo listo por aquí!</p></div>';
   document.getElementById('tlist').innerHTML = html;
 }
 
@@ -616,7 +668,7 @@ function setRankView(v, btn) {
 }
 
 function rRank() {
-  const icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒"};
+  const icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒","Estudio":"💻"};
   const medals = ["🥇","🥈","🥉"];
 
   const tabHtml = function() {
@@ -767,7 +819,7 @@ async function saveAssignment(taskId, userName) {
 }
 
 function rTurnos() {
-  var icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒"};
+  var icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒","Estudio":"💻"};
   var rooms = {};
   TD.forEach(function(t) {
     if (!rooms[t.room]) rooms[t.room] = {icon:t.icon, tasks:[]};
@@ -830,7 +882,7 @@ function rSemana() {
     return d >= bounds.start && d <= bounds.end;
   });
 
-  var icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒"};
+  var icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒","Estudio":"💻"};
   var dateStr = bounds.start.toLocaleDateString("es",{day:"numeric",month:"short"}) + " – " + bounds.end.toLocaleDateString("es",{day:"numeric",month:"short"});
 
   // Per person stats
