@@ -478,10 +478,21 @@ async function doCheck() {
   const mins = parseInt(document.getElementById('mtime').value);
   const note = document.getElementById('mnote').value.trim();
   const rec = { task_id: pid, task_name: t.name, room: t.room, username: usr.name, avatar: usr.avatar, mins, note };
-  await sb.from('checks').upsert(rec, { onConflict: 'task_id' });
-  await sb.from('history').insert(rec);
-  await loadData();
-  closeModal(); rAll();
+
+  // Actualizar estado local inmediatamente
+  checks[pid] = rec;
+  history.unshift({ ...rec, created_at: new Date().toISOString() });
+  closeModal();
+  rAll();
+
+  // Guardar en Supabase en segundo plano
+  try {
+    await sb.from('checks').delete().eq('task_id', pid);
+    await sb.from('checks').insert(rec);
+    await sb.from('history').insert(rec);
+  } catch(e) {
+    console.error('Error guardando:', e);
+  }
 }
 
 // ── HISTORY ──────────────────────────────────────────────────────────────────
