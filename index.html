@@ -203,6 +203,8 @@
 
   <div class="tabs">
     <button class="tab active" onclick="goTab('tasks',this)">📋 Tareas</button>
+    <button class="tab" onclick="goTab('turnos',this)">🔄 Turnos</button>
+    <button class="tab" onclick="goTab('semana',this)">📊 Semana</button>
     <button class="tab" onclick="goTab('history',this)">📜 Historial</button>
     <button class="tab" onclick="goTab('ranking',this)">🏆 Ranking</button>
     <button class="tab" onclick="goTab('shopping',this)">🛒 Compras</button>
@@ -224,6 +226,11 @@
 
   <!-- HISTORY -->
   <div id="tab-history" class="ctn" style="display:none">
+    <div class="fbar" id="histFilters">
+      <button class="fb active" onclick="setHistFilter('all',this)">Todas</button>
+      <button class="fb" onclick="setHistFilter('Alejandro',this)">👨 Alejandro</button>
+      <button class="fb" onclick="setHistFilter('Renata',this)">👩 Renata</button>
+    </div>
     <div id="hlist"></div>
   </div>
 
@@ -239,6 +246,16 @@
     </div>
   </div>
 </div>
+
+  <!-- TURNOS -->
+  <div id="tab-turnos" class="ctn" style="display:none">
+    <div id="turnosList"></div>
+  </div>
+
+  <!-- SEMANA -->
+  <div id="tab-semana" class="ctn" style="display:none">
+    <div id="semanaContent"></div>
+  </div>
 
   <!-- SHOPPING -->
   <div id="tab-shopping" class="ctn" style="display:none">
@@ -361,6 +378,7 @@ const TD = [
 
 // ── ESTADO ───────────────────────────────────────────────────────────────────
 let sb, usr = null, filt = 'all', pid = null;
+let assignments = {};
 let checks = {}, history = [];
 let selAv = '🧑';
 
@@ -391,13 +409,16 @@ async function init() {
 }
 
 async function loadData() {
-  const [c, h] = await Promise.all([
+  const [c, h, a] = await Promise.all([
     sb.from('checks').select('*'),
-    sb.from('history').select('*').order('created_at', { ascending: false })
+    sb.from('history').select('*').order('created_at', { ascending: false }),
+    sb.from('assignments').select('*')
   ]);
   checks = {};
   (c.data || []).forEach(r => checks[r.task_id] = r);
   history = h.data || [];
+  assignments = {};
+  (a.data || []).forEach(r => assignments[r.task_id] = r);
 }
 
 function showApp() {
@@ -422,13 +443,15 @@ function doChangeUser() {
 
 // ── TABS ─────────────────────────────────────────────────────────────────────
 function goTab(t, btn) {
-  ['tasks','history','ranking','shopping'].forEach(x => document.getElementById('tab-'+x).style.display = 'none');
+  ['tasks','history','ranking','shopping','turnos','semana'].forEach(x => document.getElementById('tab-'+x).style.display = 'none');
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-'+t).style.display = 'block';
   btn.classList.add('active');
   if (t === 'history') rHist();
   if (t === 'ranking') rRank();
   if (t === 'shopping') rShop();
+  if (t === 'turnos') rTurnos();
+  if (t === 'semana') rSemana();
 }
 
 function doFilter(f, btn) {
@@ -528,44 +551,185 @@ async function doCheck() {
 }
 
 // ── HISTORY ──────────────────────────────────────────────────────────────────
+let histFilter = 'all';
+
+function setHistFilter(f, btn) {
+  histFilter = f;
+  document.querySelectorAll('#histFilters .fb').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  rHist();
+}
+
 function rHist() {
-  if (!history.length) {
-    document.getElementById('hlist').innerHTML = `<div class="empty"><div class="emico">📜</div><p>Aún no hay registros.</p></div>`;
+  let items = history;
+  if (histFilter !== 'all') items = items.filter(h => h.username === histFilter);
+
+  if (!items.length) {
+    document.getElementById('hlist').innerHTML = '<div class="empty"><div class="emico">📜</div><p>Aún no hay registros.</p></div>';
     return;
   }
-  document.getElementById('hlist').innerHTML = history.map(h => {
-    const dt = new Date(h.created_at);
-    const ds = dt.toLocaleDateString('es', { day: 'numeric', month: 'short' }) + ' ' + dt.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
-    return `<div class="hi"><div class="hav">${h.avatar || '🧑'}</div><div class="hinf"><div class="ht">${h.task_name}</div><div class="hd">${h.room} · ${h.username} · ${ds}${h.note ? ' · ' + h.note : ''}</div></div><div class="htm">${h.mins}min</div></div>`;
-  }).join('');
+
+  // Group by room
+  const rooms = {};
+  items.forEach(h => {
+    if (!rooms[h.room]) rooms[h.room] = [];
+    rooms[h.room].push(h);
+  });
+
+  // Room icons map
+  const icons = {
+    'Baño':'🚿','Cocina':'🍳','Sala':'🛋️','Pasillo':'🚶',
+    'Balcones':'🌿','Cuarto':'🛏️','Ropa':'👕','Perro':'🐶','Gestión':'🛒'
+  };
+
+  let html = '';
+  Object.entries(rooms).forEach(([room, entries]) => {
+    const totalMins = entries.reduce((a,h) => a+(h.mins||0), 0);
+    const ico = icons[room] || '🏠';
+    html += '<div class="section">'
+      + '<div class="shdr"><div class="sico">'+ico+'</div><div class="stit">'+room+'</div>'
+      + '<div class="scnt">'+entries.length+' tareas · '+totalMins+'min</div></div>';
+    entries.forEach(h => {
+      const dt = new Date(h.created_at);
+      const ds = dt.toLocaleDateString('es',{day:'numeric',month:'short'})+' '+dt.toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+      html += '<div class="hi">'
+        + '<div class="hav">'+(h.avatar||'🧑')+'</div>'
+        + '<div class="hinf"><div class="ht">'+h.task_name+'</div>'
+        + '<div class="hd">'+h.username+' · '+ds+(h.note?' · '+h.note:'')+'</div></div>'
+        + '<div class="htm">'+h.mins+'min</div>'
+        + '</div>';
+    });
+    html += '</div>';
+  });
+
+  document.getElementById('hlist').innerHTML = html;
 }
 
 // ── RANKING ──────────────────────────────────────────────────────────────────
+let rankView = "general";
+
+function setRankView(v, btn) {
+  rankView = v;
+  document.querySelectorAll("#rankTabs .fb").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  rRank();
+}
+
 function rRank() {
-  const stats = {};
-  history.forEach(h => {
-    if (!stats[h.username]) stats[h.username] = { name: h.username, avatar: h.avatar || '🧑', count: 0, mins: 0 };
-    stats[h.username].count++;
-    stats[h.username].mins += h.mins || 0;
-  });
-  const sorted = Object.values(stats).sort((a, b) => b.count - a.count);
-  const medals = ['🥇', '🥈', '🥉'];
-  let html = `<p style="font-family:'Roboto',sans-serif;font-weight:700;font-size:18px;margin-bottom:16px">🏆 Ranking del depa</p>`;
-  if (!sorted.length) {
-    html += `<div class="empty"><div class="emico">🏆</div><p>Aún no hay datos.</p></div>`;
-  } else {
-    html += sorted.map((u, i) => `
-      <div class="rank-card${i === 0 ? ' gold' : ''}">
-        <div class="rank-num">${medals[i] || '#' + (i + 1)}</div>
-        <div class="rank-av">${u.avatar}</div>
-        <div class="rank-inf">
-          <div class="rank-name">${u.name}</div>
-          <div class="rank-sub">${u.count} tareas · ${u.mins} minutos</div>
-        </div>
-        <div class="rank-mins">${u.mins}min</div>
-      </div>`).join('');
+  const icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒"};
+  const medals = ["🥇","🥈","🥉"];
+
+  const tabHtml = function() {
+    var tabs = ["general","zona","tarea"];
+    var labels = ["General","Por zona","Por tarea"];
+    var out = "<div class=\"fbar\" id=\"rankTabs\" style=\"margin-bottom:20px\">";
+    tabs.forEach(function(t, i) {
+      var active = rankView === t ? " active" : "";
+      out += "<button class=\"fb" + active + "\" onclick=\"setRankView('" + t + "',this)\">" + labels[i] + "</button>";
+    });
+    out += "</div>";
+    return out;
+  };
+
+  var html = tabHtml();
+
+  if (!history.length) {
+    html += "<div class=\"empty\"><div class=\"emico\">🏆</div><p>Aún no hay datos.</p></div>";
+    document.getElementById("rlist").innerHTML = html;
+    return;
   }
-  document.getElementById('rlist').innerHTML = html;
+
+  if (rankView === "general") {
+    var stats = {};
+    history.forEach(function(h) {
+      if (!stats[h.username]) stats[h.username] = {name:h.username, avatar:h.avatar||"🧑", count:0, mins:0, rooms:{}};
+      stats[h.username].count++;
+      stats[h.username].mins += h.mins||0;
+      if (!stats[h.username].rooms[h.room]) stats[h.username].rooms[h.room] = 0;
+      stats[h.username].rooms[h.room]++;
+    });
+    var sorted = Object.values(stats).sort(function(a,b){return b.mins-a.mins;});
+    sorted.forEach(function(u, i) {
+      var hrs = Math.floor(u.mins/60);
+      var rem = u.mins % 60;
+      var timeStr = hrs > 0 ? hrs+"h "+rem+"min" : u.mins+"min";
+      var medal = medals[i] || "#"+(i+1);
+      var roomTags = Object.entries(u.rooms).sort(function(a,b){return b[1]-a[1];}).map(function(e) {
+        return "<span style=\"background:rgba(93,193,185,0.1);color:var(--accent);font-size:11px;padding:3px 9px;border-radius:20px\">"+(icons[e[0]]||"")+" "+e[0]+" ("+e[1]+")</span>";
+      }).join("");
+      var gold = i===0 ? " gold" : "";
+      html += "<div class=\"rank-card"+gold+"\" style=\"flex-direction:column;align-items:flex-start;gap:10px\">"
+        + "<div style=\"display:flex;align-items:center;gap:12px;width:100%\">"
+        + "<div class=\"rank-num\">"+medal+"</div>"
+        + "<div class=\"rank-av\">"+u.avatar+"</div>"
+        + "<div class=\"rank-inf\"><div class=\"rank-name\">"+u.name+"</div>"
+        + "<div class=\"rank-sub\">"+u.count+" tareas completadas</div></div>"
+        + "<div class=\"rank-mins\">"+timeStr+"</div>"
+        + "</div>"
+        + "<div style=\"display:flex;gap:8px;flex-wrap:wrap;padding-left:4px\">"+roomTags+"</div>"
+        + "</div>";
+    });
+
+  } else if (rankView === "zona") {
+    var rooms = {};
+    history.forEach(function(h) {
+      if (!rooms[h.room]) rooms[h.room] = {};
+      if (!rooms[h.room][h.username]) rooms[h.room][h.username] = {avatar:h.avatar||"🧑", count:0, mins:0};
+      rooms[h.room][h.username].count++;
+      rooms[h.room][h.username].mins += h.mins||0;
+    });
+    Object.entries(rooms).forEach(function(entry) {
+      var room = entry[0]; var people = entry[1];
+      var sorted = Object.entries(people).sort(function(a,b){return b[1].mins-a[1].mins;});
+      html += "<div class=\"section\">"
+        + "<div class=\"shdr\"><div class=\"sico\">"+(icons[room]||"🏠")+"</div><div class=\"stit\">"+room+"</div></div>";
+      sorted.forEach(function(pe, i) {
+        var name = pe[0]; var data = pe[1];
+        html += "<div class=\"hi\">"
+          + "<div style=\"font-size:20px;width:28px;text-align:center\">"+(medals[i]||"")+"</div>"
+          + "<div class=\"hav\">"+data.avatar+"</div>"
+          + "<div class=\"hinf\"><div class=\"ht\">"+name+"</div>"
+          + "<div class=\"hd\">"+data.count+" tareas</div></div>"
+          + "<div class=\"htm\">"+data.mins+"min</div></div>";
+      });
+      html += "</div>";
+    });
+
+  } else if (rankView === "tarea") {
+    var tasks = {};
+    history.forEach(function(h) {
+      if (!tasks[h.task_name]) tasks[h.task_name] = {room:h.room, entries:[]};
+      tasks[h.task_name].entries.push(h);
+    });
+    var tasksByRoom = {};
+    Object.entries(tasks).forEach(function(te) {
+      var tname = te[0]; var tdata = te[1];
+      if (!tasksByRoom[tdata.room]) tasksByRoom[tdata.room] = [];
+      tasksByRoom[tdata.room].push({name:tname, entries:tdata.entries});
+    });
+    Object.entries(tasksByRoom).forEach(function(re) {
+      var room = re[0]; var taskList = re[1];
+      html += "<div class=\"section\">"
+        + "<div class=\"shdr\"><div class=\"sico\">"+(icons[room]||"🏠")+"</div><div class=\"stit\">"+room+"</div></div>";
+      taskList.forEach(function(task) {
+        var total = task.entries.reduce(function(a,h){return a+(h.mins||0);},0);
+        var avg = Math.round(total/task.entries.length);
+        var byUser = {};
+        task.entries.forEach(function(h){byUser[h.username]=(byUser[h.username]||0)+1;});
+        var whoStr = Object.entries(byUser).map(function(ue){return ue[0]+(ue[1]>1?" ("+ue[1]+"x)":"");}).join(", ");
+        html += "<div class=\"hi\" style=\"flex-direction:column;align-items:flex-start;gap:4px\">"
+          + "<div style=\"display:flex;width:100%;align-items:center;gap:10px\">"
+          + "<div class=\"hinf\"><div class=\"ht\">"+task.name+"</div>"
+          + "<div class=\"hd\">"+whoStr+"</div></div>"
+          + "<div style=\"text-align:right;flex-shrink:0\"><div class=\"htm\">~"+avg+"min</div>"
+          + "<div style=\"font-size:10px;color:var(--muted)\">"+task.entries.length+"x hecha</div></div>"
+          + "</div></div>";
+      });
+      html += "</div>";
+    });
+  }
+
+  document.getElementById("rlist").innerHTML = html;
 }
 
 // ── RESET ────────────────────────────────────────────────────────────────────
@@ -574,6 +738,190 @@ async function doReset() {
   await sb.from('checks').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await loadData(); rAll();
   alert('✅ Tareas reseteadas. ¡Nueva semana, a limpiar!');
+}
+
+// ── TURNOS ───────────────────────────────────────────────────────────────────
+var USERS = [{name:"Alejandro",avatar:"👨"},{name:"Renata",avatar:"👩"}];
+
+function getWeekNumber() {
+  var now = new Date();
+  var start = new Date(now.getFullYear(), 0, 1);
+  return Math.ceil(((now - start) / 86400000 + start.getDay() + 1) / 7);
+}
+
+function getAutoAssignee(taskId) {
+  var weekNum = getWeekNumber();
+  var idx = (weekNum + taskId.charCodeAt(0)) % 2;
+  return USERS[idx];
+}
+
+async function saveAssignment(taskId, userName) {
+  var user = USERS.find(function(u){return u.name===userName;});
+  if (!user) return;
+  try {
+    await sb.from('assignments').delete().eq('task_id', taskId);
+    await sb.from('assignments').insert({task_id: taskId, username: userName, avatar: user.avatar});
+    await loadData();
+    rTurnos();
+  } catch(e) { console.error(e); }
+}
+
+function rTurnos() {
+  var icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒"};
+  var rooms = {};
+  TD.forEach(function(t) {
+    if (!rooms[t.room]) rooms[t.room] = {icon:t.icon, tasks:[]};
+    rooms[t.room].tasks.push(t);
+  });
+
+  var html = '<p style="font-size:12px;color:var(--muted);margin-bottom:16px">La semana actual rota automáticamente. Puedes reasignar manualmente cualquier tarea.</p>';
+
+  Object.entries(rooms).forEach(function(re) {
+    var room = re[0]; var data = re[1];
+    html += '<div class="section">'
+      + '<div class="shdr"><div class="sico">'+(icons[room]||"🏠")+'</div><div class="stit">'+room+'</div></div>';
+
+    data.tasks.forEach(function(t) {
+      var assigned = assignments[t.id];
+      var assignee = assigned ? {name:assigned.username, avatar:assigned.avatar} : getAutoAssignee(t.id);
+      var isDone = !!checks[t.id];
+      var doneBy = isDone ? checks[t.id].username : null;
+      var otherUser = USERS.find(function(u){return u.name!==assignee.name;});
+
+      html += '<div class="tc f'+t.freq[0]+'" style="'+(isDone?"opacity:0.5":"")+'">'
+        + '<div style="flex:1"><div class="tn" style="'+(isDone?"text-decoration:line-through":"")+'">'+t.name+'</div>'
+        + '<div class="tm"><span class="ft '+(t.freq[0]==="d"?"d":t.freq[0]==="s"?"s":"m")+'">'+t.freq+'</span>'
+        + (isDone ? '<span class="dm">✓ '+doneBy+'</span>' : '')
+        + '</div></div>'
+        + '<div style="display:flex;align-items:center;gap:8px">'
+        + '<div style="text-align:center;cursor:pointer;opacity:'+(assigned?"1":"0.6")+'" onclick="saveAssignment(\''+t.id+'\',\''+assignee.name+'\')">'
+        + '<div style="font-size:22px">'+assignee.avatar+'</div>'
+        + '<div style="font-size:10px;color:var(--accent);font-weight:500">'+assignee.name+'</div>'
+        + '</div>'
+        + '<div style="color:var(--muted);font-size:11px;cursor:pointer;background:var(--surface2);border-radius:8px;padding:4px 8px" onclick="saveAssignment(\''+t.id+'\',\''+otherUser.name+'\')">'
+        + '→ '+otherUser.name
+        + '</div>'
+        + '</div></div>';
+    });
+    html += '</div>';
+  });
+
+  document.getElementById('turnosList').innerHTML = html;
+}
+
+// ── SEMANA ────────────────────────────────────────────────────────────────────
+function getWeekBounds() {
+  var now = new Date();
+  var day = now.getDay();
+  var diffToMon = (day === 0) ? -6 : 1 - day;
+  var mon = new Date(now);
+  mon.setDate(now.getDate() + diffToMon);
+  mon.setHours(0,0,0,0);
+  var sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  sun.setHours(23,59,59,999);
+  return {start: mon, end: sun};
+}
+
+function rSemana() {
+  var bounds = getWeekBounds();
+  var weekHistory = history.filter(function(h) {
+    var d = new Date(h.created_at);
+    return d >= bounds.start && d <= bounds.end;
+  });
+
+  var icons = {"Baño":"🚿","Cocina":"🍳","Sala":"🛋️","Pasillo":"🚶","Balcones":"🌿","Cuarto":"🛏️","Ropa":"👕","Perro":"🐶","Gestión":"🛒"};
+  var dateStr = bounds.start.toLocaleDateString("es",{day:"numeric",month:"short"}) + " – " + bounds.end.toLocaleDateString("es",{day:"numeric",month:"short"});
+
+  // Per person stats
+  var perPerson = {};
+  USERS.forEach(function(u) { perPerson[u.name] = {count:0, mins:0, rooms:{}}; });
+  weekHistory.forEach(function(h) {
+    if (!perPerson[h.username]) return;
+    perPerson[h.username].count++;
+    perPerson[h.username].mins += h.mins||0;
+    if (!perPerson[h.username].rooms[h.room]) perPerson[h.username].rooms[h.room] = 0;
+    perPerson[h.username].rooms[h.room]++;
+  });
+
+  // Total tasks done vs total tasks
+  var totalDone = Object.keys(checks).length;
+  var totalTasks = TD.length;
+  var pct = Math.round((totalDone/totalTasks)*100);
+
+  var html = '<p style="font-family:Roboto,sans-serif;font-weight:500;font-size:16px;margin-bottom:4px">Semana actual</p>'
+    + '<p style="font-size:12px;color:var(--muted);margin-bottom:16px">'+dateStr+'</p>';
+
+  // Progress bar
+  html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px">'
+    + '<div style="display:flex;justify-content:space-between;margin-bottom:8px">'
+    + '<span style="font-size:13px;font-weight:500">Progreso semanal</span>'
+    + '<span style="font-size:13px;color:var(--accent);font-weight:500">'+totalDone+'/'+totalTasks+' ('+pct+'%)</span>'
+    + '</div>'
+    + '<div style="background:var(--surface2);border-radius:20px;height:8px;overflow:hidden">'
+    + '<div style="background:var(--accent);width:'+pct+'%;height:100%;border-radius:20px;transition:width 0.5s"></div>'
+    + '</div></div>';
+
+  // Per person cards
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">';
+  USERS.forEach(function(u) {
+    var p = perPerson[u.name];
+    var hrs = Math.floor(p.mins/60);
+    var rem = p.mins%60;
+    var timeStr = hrs>0 ? hrs+"h "+rem+"min" : p.mins+"min";
+    var topRoom = Object.entries(p.rooms).sort(function(a,b){return b[1]-a[1];})[0];
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;text-align:center">'
+      + '<div style="font-size:32px;margin-bottom:6px">'+u.avatar+'</div>'
+      + '<div style="font-size:14px;font-weight:500;margin-bottom:10px">'+u.name+'</div>'
+      + '<div style="font-size:24px;font-weight:500;color:var(--accent)">'+p.count+'</div>'
+      + '<div style="font-size:11px;color:var(--muted)">tareas</div>'
+      + '<div style="font-size:16px;font-weight:500;margin-top:8px">'+timeStr+'</div>'
+      + '<div style="font-size:11px;color:var(--muted)">tiempo total</div>'
+      + (topRoom ? '<div style="margin-top:10px;font-size:11px;color:var(--accent);background:rgba(93,193,185,0.1);padding:4px 8px;border-radius:20px">'+(icons[topRoom[0]]||"")+" "+topRoom[0]+'</div>' : '')
+      + '</div>';
+  });
+  html += '</div>';
+
+  // Who's winning
+  var ale = perPerson["Alejandro"];
+  var ren = perPerson["Renata"];
+  var leader = ale.mins > ren.mins ? "Alejandro 👨" : ren.mins > ale.mins ? "Renata 👩" : null;
+  if (leader) {
+    html += '<div style="background:rgba(93,193,185,0.08);border:1px solid rgba(93,193,185,0.2);border-radius:var(--radius);padding:14px;text-align:center;margin-bottom:14px">'
+      + '<div style="font-size:13px;color:var(--muted)">Esta semana va ganando</div>'
+      + '<div style="font-size:18px;font-weight:500;color:var(--accent);margin-top:4px">🏅 '+leader+'</div>'
+      + '</div>';
+  }
+
+  // By room progress
+  html += '<p style="font-size:13px;font-weight:500;margin-bottom:10px">Por zona</p>';
+  var roomsDone = {};
+  var roomsTotal = {};
+  TD.forEach(function(t) {
+    if (!roomsTotal[t.room]) roomsTotal[t.room] = {total:0,icon:t.icon};
+    roomsTotal[t.room].total++;
+    if (checks[t.id]) {
+      if (!roomsDone[t.room]) roomsDone[t.room] = 0;
+      roomsDone[t.room]++;
+    }
+  });
+
+  Object.entries(roomsTotal).forEach(function(re) {
+    var room = re[0]; var data = re[1];
+    var done = roomsDone[room]||0;
+    var pctRoom = Math.round((done/data.total)*100);
+    var color = pctRoom===100?"var(--green)":pctRoom>50?"var(--accent)":"var(--muted)";
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:7px">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">'
+      + '<div style="display:flex;align-items:center;gap:8px"><span>'+data.icon+'</span><span style="font-size:13px">'+room+'</span></div>'
+      + '<span style="font-size:12px;color:'+color+'">'+done+'/'+data.total+'</span>'
+      + '</div>'
+      + '<div style="background:var(--surface2);border-radius:20px;height:5px;overflow:hidden">'
+      + '<div style="background:'+color+';width:'+pctRoom+'%;height:100%;border-radius:20px"></div>'
+      + '</div></div>';
+  });
+
+  document.getElementById('semanaContent').innerHTML = html;
 }
 
 // ── SHOPPING LIST ────────────────────────────────────────────────────────────
