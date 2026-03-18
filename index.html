@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>🏠 Tareas del Depa</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -70,7 +71,7 @@
 
   /* TASK CARD */
   .tc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; margin-bottom: 7px; display: flex; align-items: center; gap: 12px; cursor: pointer; position: relative; overflow: hidden; transition: all 0.2s; }
-  .tc:hover { border-color: rgba(93,193,185,0.35); transform: translateX(2px); }
+  .tc:hover { border-color: var(--accent); transform: translateX(4px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
   .tc.done { opacity: 0.5; }
   .tc.done .tn { text-decoration: line-through; }
   .tc::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
@@ -126,7 +127,8 @@
   .htm { font-size: 12px; color: var(--accent); font-family: 'Roboto', sans-serif; font-weight: 700; flex-shrink: 0; }
 
   /* RANKING */
-  .rank-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 14px; }
+  .rank-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 14px; transition: all 0.2s; }
+  .rank-card:hover { transform: scale(1.02); box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
   .rank-card.gold { border-color: rgba(93,193,185,0.4); background: rgba(93,193,185,0.07); }
   .rank-num { font-family: 'Roboto', sans-serif; font-weight: 800; font-size: 22px; width: 36px; text-align: center; flex-shrink: 0; }
   .rank-av { font-size: 28px; flex-shrink: 0; }
@@ -157,7 +159,7 @@
 
   /* COMPACT TASK CARD */
   .tc-compact { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 9px; cursor: pointer; position: relative; overflow: hidden; transition: all 0.2s; }
-  .tc-compact:hover { border-color: rgba(93,193,185,0.35); }
+  .tc-compact:hover { border-color: var(--accent); box-shadow: 0 4px 8px rgba(0,0,0,0.15); transform: translateY(-1px); }
   .tc-compact.done { opacity: 0.45; }
   .tc-compact.done .tn { text-decoration: line-through; }
   .tc-compact::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
@@ -477,9 +479,24 @@ function doChangeUser() {
 
 // ── TABS ─────────────────────────────────────────────────────────────────────
 function goTab(t, btn) {
-  ['tasks','history','ranking','shopping','turnos','semana'].forEach(x => document.getElementById('tab-'+x).style.display = 'none');
+  ['tasks', 'history', 'ranking', 'shopping', 'turnos', 'semana'].forEach(x => {
+    const el = document.getElementById('tab-' + x);
+    if (el) {
+      el.style.display = 'none';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(10px)';
+    }
+  });
   document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-  document.getElementById('tab-'+t).style.display = 'block';
+  const target = document.getElementById('tab-' + t);
+  if (target) {
+    target.style.display = 'block';
+    setTimeout(() => {
+      target.style.transition = 'all 0.3s ease-out';
+      target.style.opacity = '1';
+      target.style.transform = 'translateY(0)';
+    }, 10);
+  }
   btn.classList.add('active');
   if (t === 'history') rHist();
   if (t === 'ranking') rRank();
@@ -585,6 +602,14 @@ async function doCheck() {
   history.unshift({ ...rec, created_at: new Date().toISOString() });
   closeModal();
   rAll();
+
+  // 🎉 Efecto de celebración
+  confetti({
+    particleCount: 100,
+    spread: 70,
+    origin: { y: 0.6 },
+    colors: ['#5dc1b9', '#f25f4c', '#a7c957', '#7b5ea7']
+  });
 
   // Agregar a lista de compras si hay texto
   const shopVal = document.getElementById('mshop').value.trim();
@@ -933,6 +958,26 @@ function rSemana() {
       + '</div>';
   });
   html += '</div>';
+
+  // Today's activity
+  var today = new Date().toDateString();
+  var todayHistory = weekHistory.filter(h => new Date(h.created_at).toDateString() === today);
+
+  html += '<p style="font-size:13px;font-weight:500;margin-bottom:10px">Actividad de hoy</p>';
+  if (todayHistory.length === 0) {
+    html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center;color:var(--muted);font-size:12px;margin-bottom:14px">Sin actividad hoy</div>';
+  } else {
+    html += '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">';
+    todayHistory.forEach(h => {
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px">'
+        + '<div style="font-size:20px">'+(h.avatar||"🧑")+'</div>'
+        + '<div style="flex:1"><div style="font-size:12px;font-weight:500">'+h.task_name+'</div>'
+        + '<div style="font-size:10px;color:var(--muted)">'+h.username+' · '+(icons[h.room]||"")+' '+h.room+'</div></div>'
+        + '<div style="font-size:11px;color:var(--accent);font-weight:600">'+h.mins+'m</div>'
+        + '</div>';
+    });
+    html += '</div>';
+  }
 
   // Who's winning
   var ale = perPerson["Alejandro"];
